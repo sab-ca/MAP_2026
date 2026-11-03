@@ -1,0 +1,11 @@
+1;Ana;Pop
+2;Mihai;Ionescu
+3;Ioana;Rus
+4;Andrei;Muresan
+5;Maria;Popescu
+6;Radu;Stan
+7;Elena;Dumitru
+8;Vlad;Matei
+9;Cristina;Toma
+10;Paul;Georgescu
+11;Sorin;Lazar
