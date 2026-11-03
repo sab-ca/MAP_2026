@@ -5,7 +5,7 @@ import domain.Validator;
 
 public class UtilizatorDbRepository implements Repository<Long, Utilizator> {
     private static final String MESAJ =
-            "Persistenta in baza de date nu este implementata inca (laboratorul 4).";
+            "Persistenta in baza de date nu este implementata inca (laboratorul 5).";
 
     private final Validator<Utilizator> validator;
     private final String url;

@@ -6,7 +6,7 @@ import domain.Validator;
 
 public class PrietenieDbRepository implements Repository<Tuple<Long, Long>, Prietenie> {
     private static final String MESAJ =
-            "Persistenta in baza de date nu este implementata inca (laboratorul 4).";
+            "Persistenta in baza de date nu este implementata inca (laboratorul 5).";
 
     private final Validator<Prietenie> validator;
     private final String url;
