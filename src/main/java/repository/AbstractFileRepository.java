@@ -5,13 +5,16 @@ import domain.Validator;
 import exceptions.RepositoryException;
 import exceptions.ValidationException;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.format.DateTimeParseException;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 public abstract class AbstractFileRepository<ID, E extends Entity<ID>> extends InMemoryRepository<ID, E> {
     private final Path file;
@@ -30,16 +33,16 @@ public abstract class AbstractFileRepository<ID, E extends Entity<ID>> extends I
         if (!Files.exists(file)) {
             return;
         }
-        try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            String line;
-            int lineNumber = 0;
-            while ((line = reader.readLine()) != null) {
-                lineNumber++;
-                if (!line.isBlank()) {
-                    loadLine(line, lineNumber);
-                }
-            }
-        } catch (IOException e) {
+        List<String> lines = readLines();
+        IntStream.range(0, lines.size())
+                .filter(i -> !lines.get(i).isBlank())
+                .forEach(i -> loadLine(lines.get(i), i + 1));
+    }
+
+    private List<String> readLines() {
+        try (Stream<String> lines = Files.lines(file, StandardCharsets.UTF_8)) {
+            return lines.collect(Collectors.toList());
+        } catch (IOException | UncheckedIOException e) {
             throw new RepositoryException("Nu pot citi fisierul " + file + ": " + e.getMessage(), e);
         }
     }
@@ -62,17 +65,15 @@ public abstract class AbstractFileRepository<ID, E extends Entity<ID>> extends I
     }
 
     private void writeToFile() {
+        List<String> lines = Repository.streamOf(findAll())
+                .map(this::createEntityAsString)
+                .collect(Collectors.toList());
         try {
             Path folder = file.getParent();
             if (folder != null) {
                 Files.createDirectories(folder);
             }
-            try (BufferedWriter writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
-                for (E entity : findAll()) {
-                    writer.write(createEntityAsString(entity));
-                    writer.newLine();
-                }
-            }
+            Files.write(file, lines, StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new RepositoryException("Nu pot scrie fisierul " + file + ": " + e.getMessage(), e);
         }

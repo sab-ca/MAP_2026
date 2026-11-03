@@ -1,8 +1,12 @@
 package repository;
 
 import domain.Entity;
-import exceptions.RepositoryException;
-import exceptions.ValidationException;
+
+import java.util.List;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 public interface Repository<ID, E extends Entity<ID>> {
 
@@ -15,4 +19,14 @@ public interface Repository<ID, E extends Entity<ID>> {
     E delete(ID id);
 
     E update(E entity);
+
+    default List<E> findAll(Predicate<E> filter) {
+        return streamOf(findAll())
+                .filter(filter)
+                .collect(Collectors.toList());
+    }
+
+    static <T> Stream<T> streamOf(Iterable<T> elemente) {
+        return StreamSupport.stream(elemente.spliterator(), false);
+    }
 }

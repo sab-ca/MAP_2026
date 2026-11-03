@@ -14,11 +14,19 @@ import repository.UtilizatorFileRepository;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.EnumMap;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
+import java.util.function.Function;
 
 public class RepositoryFactory {
     private final Properties config = new Properties();
     private final RepositoryType type;
+    private final Map<RepositoryType, Function<Validator<Utilizator>, Repository<Long, Utilizator>>> utilizatori =
+            new EnumMap<>(RepositoryType.class);
+    private final Map<RepositoryType, Function<Validator<Prietenie>, Repository<Tuple<Long, Long>, Prietenie>>> prietenii =
+            new EnumMap<>(RepositoryType.class);
 
     public RepositoryFactory(String configResource) {
         try (InputStream in = RepositoryFactory.class.getClassLoader().getResourceAsStream(configResource)) {
@@ -37,6 +45,18 @@ public class RepositoryFactory {
             throw new RepositoryException("repository.type are valoarea necunoscuta '" + value
                     + "'; valori permise: MEMORY, FILE, DATABASE.", e);
         }
+
+        utilizatori.put(RepositoryType.MEMORY, InMemoryRepository::new);
+        utilizatori.put(RepositoryType.FILE,
+                v -> new UtilizatorFileRepository(v, getRequired("file.utilizatori")));
+        utilizatori.put(RepositoryType.DATABASE,
+                v -> new UtilizatorDbRepository(v, getRequired("db.url"), getRequired("db.user"), getRequired("db.password")));
+
+        prietenii.put(RepositoryType.MEMORY, InMemoryRepository::new);
+        prietenii.put(RepositoryType.FILE,
+                v -> new PrietenieFileRepository(v, getRequired("file.prietenii")));
+        prietenii.put(RepositoryType.DATABASE,
+                v -> new PrietenieDbRepository(v, getRequired("db.url"), getRequired("db.user"), getRequired("db.password")));
     }
 
     public RepositoryType getType() {
@@ -44,38 +64,23 @@ public class RepositoryFactory {
     }
 
     public Repository<Long, Utilizator> createUtilizatorRepository(Validator<Utilizator> validator) {
-        switch (type) {
-            case MEMORY:
-                return new InMemoryRepository<Long, Utilizator>(validator);
-            case FILE:
-                return new UtilizatorFileRepository(validator, getRequired("file.utilizatori"));
-            case DATABASE:
-                return new UtilizatorDbRepository(validator,
-                        getRequired("db.url"), getRequired("db.user"), getRequired("db.password"));
-            default:
-                throw new RepositoryException("Tip de persistenta netratat: " + type);
-        }
+        return creeaza(utilizatori, validator);
     }
 
     public Repository<Tuple<Long, Long>, Prietenie> createPrietenieRepository(Validator<Prietenie> validator) {
-        switch (type) {
-            case MEMORY:
-                return new InMemoryRepository<Tuple<Long, Long>, Prietenie>(validator);
-            case FILE:
-                return new PrietenieFileRepository(validator, getRequired("file.prietenii"));
-            case DATABASE:
-                return new PrietenieDbRepository(validator,
-                        getRequired("db.url"), getRequired("db.user"), getRequired("db.password"));
-            default:
-                throw new RepositoryException("Tip de persistenta netratat: " + type);
-        }
+        return creeaza(prietenii, validator);
+    }
+
+    private <V, R> R creeaza(Map<RepositoryType, Function<V, R>> creatori, V validator) {
+        return Optional.ofNullable(creatori.get(type))
+                .orElseThrow(() -> new RepositoryException("Tip de persistenta netratat: " + type))
+                .apply(validator);
     }
 
     private String getRequired(String key) {
-        String value = config.getProperty(key);
-        if (value == null || value.isBlank()) {
-            throw new RepositoryException("Lipseste valoarea pentru '" + key + "' in config.properties.");
-        }
-        return value.trim();
+        return Optional.ofNullable(config.getProperty(key))
+                .filter(value -> !value.isBlank())
+                .map(String::trim)
+                .orElseThrow(() -> new RepositoryException("Lipseste valoarea pentru '" + key + "' in config.properties."));
     }
 }
