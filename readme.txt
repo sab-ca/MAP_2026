@@ -1,155 +1,195 @@
-ToySocialNetwork - Laboratorul 3 (MAP)
+ToySocialNetwork - Laboratorul 4 (MAP)
 ======================================
+
+Laboratorul 4 este o refactorizare: aplicatia face exact ce facea la laboratorul 3
+(aceleasi functionalitati, aceleasi fisiere de date, aceleasi mesaje de eroare), dar codul
+este rescris in stil Java 8: interfete functionale, lambda, referinte la metode,
+Stream API si Optional.
 
 Rulare
 ------
-- IntelliJ: File > Open > folderul ToySocialNetwork (se importa ca proiect Gradle),
-  apoi Run pe Main (src/main/java/Main.java).
-- Linie de comanda: gradlew run   (pe Windows: gradlew.bat run)
-- Datele sunt in data/utilizatori.txt (id;prenume;nume) si
-  data/prietenii.txt (idUtilizator1;idUtilizator2;dataPrieteniei, data ISO, ex. 2026-10-19T10:30).
-- Configurarea este in src/main/resources/config.properties.
+- IntelliJ: File > Open > folderul ToySocialNetwork (proiect Gradle), apoi Run pe Main.
+  In Settings > Build Tools > Gradle: "Build and run using: IntelliJ IDEA".
+- Linie de comanda: gradlew build, gradlew run (pe Windows: gradlew.bat ...).
+- Date: data/utilizatori.txt (id;prenume;nume), data/prietenii.txt (id1;id2;dataISO).
+- Configurare: src/main/resources/config.properties (repository.type=MEMORY|FILE|DATABASE).
 
-Structura
----------
-domain       Entity, Tuple, Utilizator, Prietenie, Validator, UtilizatorValidator, PrietenieValidator
-exceptions   ValidationException, RepositoryException, ServiceException (toate unchecked)
-repository   Repository, InMemoryRepository, AbstractFileRepository,
-             UtilizatorFileRepository, PrietenieFileRepository,
-             UtilizatorDbRepository, PrietenieDbRepository (schelete pentru laboratorul 4)
-factory      RepositoryFactory, RepositoryType
-service      ServiceRetea
-ui           Consola
-Main         construieste aplicatia si porneste consola
+Git
+---
+Proiectul este un repository Git. Istoricul arata pasii refactorizarii:
+  git log --oneline
+  d783a3e  Lab 3: persistenta in fisier text, RepositoryFactory, config.properties
+  eb993ae  Lab 4: Validator functional, findAll(Predicate), criterii, factory cu Map, Files.lines
+  8a5f507  Lab 4: stream-uri si Optional in service, consola si Main
+  (ultimul commit adauga acest readme)
+Comparatie inainte/dupa pentru un fisier:
+  git diff d783a3e HEAD -- src/main/java/service/ServiceRetea.java
 
 
-1. Cum functioneaza factory-ul
-------------------------------
-RepositoryFactory este un Simple Factory si este singura clasa care cunoaste clasele
-concrete de repository.
-
-- In constructor citeste config.properties de pe classpath cu java.util.Properties,
-  intr-un try-with-resources, si transforma repository.type in enum-ul RepositoryType
-  (MEMORY, FILE, DATABASE).
-- createUtilizatorRepository(validator) si createPrietenieRepository(validator) au un switch
-  pe tip si intorc tipul abstract Repository<ID, E>. Ambele folosesc acelasi tip de
-  persistenta, citit o singura data.
-- O valoare lipsa (repository.type, file.utilizatori, db.url etc.) sau un tip necunoscut
-  produce o RepositoryException cu mesaj clar, de exemplu:
-  "repository.type are valoarea necunoscuta 'CLOUD'; valori permise: MEMORY, FILE, DATABASE."
-- Main cere repository-urile de la factory. Service-ul, UI-ul si Main lucreaza doar cu
-  interfata Repository si nu contin niciun new pe un repository concret.
-
-Ce trebuie schimbat pentru trecerea la baza de date (laboratorul 4):
-1. Se scrie codul JDBC in metodele din UtilizatorDbRepository si PrietenieDbRepository
-   (acum arunca UnsupportedOperationException). Ele primesc deja prin constructor
-   validatorul si db.url, db.user, db.password.
-2. Se adauga driverul in build.gradle.kts.
-3. In config.properties se pune repository.type=DATABASE si datele reale de conectare.
-Service-ul, UI-ul si Main raman neschimbate.
-
-
-2. Fisier lipsa si linii corupte
---------------------------------
-Fisier lipsa: AbstractFileRepository verifica Files.exists inainte de citire. Daca fisierul
-nu exista, repository-ul porneste gol, iar fisierul (si folderul data/, daca lipseste)
-se creeaza la prima salvare.
-
-Linie corupta: incarcarea se opreste cu o RepositoryException care spune fisierul,
-numarul liniei, linia si motivul. Main o prinde si afiseaza mesajul, fara stack trace:
-  Aplicatia nu a putut porni. data/utilizatori.txt, linia 3 ("abc;Ion;Pop"): format invalid - For input string: "abc"
-Sunt tratate: numar gresit de campuri, id care nu e numar (NumberFormatException),
-data in format gresit (DateTimeParseException), date care nu trec de validator
-(ValidationException) si id duplicat. Exceptia originala este pastrata ca cause
-(exception chaining).
-
-De ce oprim incarcarea in loc sa ignoram linia:
-fisierul este rescris complet dupa fiecare save, delete sau update. Daca am ignora linia
-corupta, ea ar disparea definitiv din fisier la prima modificare, fara ca utilizatorul sa
-afle. Oprirea cu un mesaj clar nu pierde date: utilizatorul repara linia (sau o sterge,
-constient) si reporneste aplicatia. In plus, exceptia ajunge in UI, care e locul unde se
-afiseaza mesajele, iar repository-ul nu scrie nimic pe ecran.
-
-Consistenta intre fisiere:
-- o prietenie se adauga doar intre utilizatori existenti (verificat in ServiceRetea);
-- stergerea unui utilizator ii sterge intai toate prieteniile, apoi utilizatorul;
-- la pornire, daca prietenii.txt contine un utilizator care nu exista in utilizatori.txt,
-  aplicatia se opreste cu mesajul "Date inconsistente: prietenia (1, 99) face referire
-  la un utilizator care nu exista."
-
-Fisiere de test (in data/test/), folosite prin schimbarea caii in config.properties:
-- utilizatori_corupt.txt   linia 3 are id nenumeric, 4 are nume invalide, 5 are doar 2 campuri
-- prietenii_corupt.txt     linia 2 are o data invalida
-- prietenii_inconsistent.txt  linia 2 face referire la utilizatorul 99, care nu exista
-Exemplu: file.utilizatori=data/test/utilizatori_corupt.txt
-
-
-3. Unde se gasesc principiile SOLID
+1. Bucle inlocuite (inainte / dupa)
 -----------------------------------
-SRP (o singura responsabilitate): fiecare clasa are un singur motiv de schimbare.
-    Validatorii valideaza, repository-urile pastreaza datele, AbstractFileRepository
-    citeste/scrie fisierul, subclasele lui stiu doar formatul unei linii, factory-ul alege
-    implementarea, ServiceRetea are regulile retelei, Consola citeste si afiseaza.
-OCP (deschis la extindere, inchis la modificare): o regula noua de validare este o clasa
-    noua care implementeaza Validator, fara schimbari in repository. O entitate noua in
-    fisier este o subclasa noua a AbstractFileRepository, fara schimbari in codul de
-    citire/scriere. Trecerea la baza de date nu schimba service-ul si UI-ul.
-LSP (substituirea Liskov): InMemoryRepository, AbstractFileRepository si repository-urile
-    DB pot inlocui oricand interfata Repository; implementarile respecta contractul din
-    Javadoc (null intors la save reusit, IllegalArgumentException pentru id/entitate null).
-    Schimbarea repository.type intre MEMORY si FILE nu schimba comportamentul aplicatiei.
-DIP (dependenta de abstractii): ServiceRetea depinde de interfata Repository, iar
-    repository-urile depind de interfata Validator. Implementarile concrete sunt alese de
-    factory si primite prin constructor.
+| Clasa.metoda                          | Inainte (Lab 3)                              | Dupa (Lab 4)                                                        |
+|---------------------------------------|----------------------------------------------|---------------------------------------------------------------------|
+| ServiceRetea (constructor)            | for (Prietenie p : findAll()) {...}          | streamOf(findAll()).forEach(this::leagaPrieteni)                    |
+| ServiceRetea.adaugaUtilizator         | for + Math.max pentru id-ul maxim            | map(Utilizator::getId).max(naturalOrder()).map(id -> id + 1).orElse(1L) |
+| ServiceRetea.stergeUtilizator         | for peste o copie a listei de prieteni       | stream().map(Utilizator::getId).collect(toList()), apoi forEach     |
+| ServiceRetea.comunitati               | for + set vizitati + dfs cu for              | streamOf(findAll()).map(this::comunitateaLui).distinct().collect(toList()) |
+| ServiceRetea.ceaMaiSociabilaComunitate| doua for-uri + variabile lungimeMaxima       | stream().max(comparingInt(...)).map(sorted + collect).orElseGet(ArrayList::new) |
+| ServiceRetea.dfs                      | for (Utilizator prieten : getPrieteni())     | getPrieteni().forEach(prieten -> dfs(prieten, vizitati))            |
+| ServiceRetea.getUtilizatori / getPrietenii | intorceau findAll() (Iterable)          | streamOf(...).sorted(Comparator.comparing(...)...).collect(toList()) |
+| AbstractFileRepository.loadData       | while (readLine() != null) + contor linie    | Files.lines(...).collect(toList()) + IntStream.range(...).filter(...).forEach(...) |
+| AbstractFileRepository.writeToFile   | for + writer.write + newLine                 | streamOf(findAll()).map(this::createEntityAsString).collect(toList()) + Files.write |
+| Consola.afiseazaUtilizatori (opt. 5)  | for + for interior cu String +=              | stream().map(...).forEach(System.out::println), id-uri cu joining(" ") |
+| Consola (opt. 6 si 8), meniul         | for / println repetat                        | stream().map(...).forEach(System.out::println), Stream.of(...)       |
+| Repository.findAll(Predicate) (nou)   | -                                            | streamOf(findAll()).filter(filter).collect(toList())               |
+| RepositoryFactory.create...           | switch (type) { case ...: return new ... }   | Map<RepositoryType, Function<Validator, Repository>> + get(type).apply(validator) |
 
 
-4. Unde se gasesc sabloanele de proiectare
+2. Interfete functionale folosite si unde
+-----------------------------------------
+Validator<T> (proprie, @FunctionalInterface)
+    - metoda default andThen(Validator<T> other) compune doua validari;
+    - in Main, regula noua "prenumele si numele au cel mult 30 de caractere" este o lambda
+      compusa cu new UtilizatorValidator().andThen(lungimeNume), fara clasa noua si fara
+      sa modificam UtilizatorValidator.
+Predicate<Utilizator>
+    - Repository.findAll(Predicate<E> filter) - metoda default;
+    - CriteriiUtilizator: faraPrieteni(), areCelPutinPrieteni(n), numeIncepeCu(p),
+      prenumeIncepeCu(p), numeSauPrenumeIncepeCu(p) (construita cu or);
+    - Consola.cautaUtilizatori combina criteriile cu and si Predicate.not.
+Function<Validator<E>, Repository<ID, E>>
+    - RepositoryFactory: cate o functie de creare pentru fiecare RepositoryType, intr-un EnumMap.
+Supplier<...>
+    - orElseThrow(() -> new ServiceException(...)), orElseGet(ArrayList::new).
+Consumer<...>
+    - forEach(System.out::println), forEach(this::leagaPrieteni).
+Comparator<...>
+    - Comparator.comparing(Utilizator::getNume).thenComparing(Utilizator::getPrenume),
+      Comparator.comparingInt(this::celMaiLungDrumDinComunitate), Comparator.naturalOrder().
+
+
+3. Referinte la metode (toate cele patru tipuri)
+------------------------------------------------
+- metoda statica:                     Long::parseLong, String::valueOf (repository-urile pe fisier)
+- metoda de instanta a unui obiect anume: System.out::println (Consola), this::leagaPrieteni,
+                                      this::comunitateaLui, this::createEntityAsString
+- metoda de instanta a unui obiect oarecare: Utilizator::getId, Utilizator::getNume,
+                                      Prietenie::getDataPrieteniei, String::trim
+- constructor:                        InMemoryRepository::new (RepositoryFactory), ArrayList::new,
+                                      String[]::new, Long[]::new
+
+
+4. Optional in Repository: am pastrat null
 ------------------------------------------
-Factory (Simple Factory): RepositoryFactory creeaza repository-urile dupa repository.type.
-Template Method: AbstractFileRepository are pasii de incarcare si salvare (loadData,
-    writeToFile, save/delete/update); UtilizatorFileRepository si PrietenieFileRepository
-    completeaza doar extractEntity si createEntityAsString.
-Strategy: Validator este strategia de validare primita de repository in constructor
-    (UtilizatorValidator, PrietenieValidator).
-Decorator: BufferedReader peste cititorul de fisier (Files.newBufferedReader) adauga buffer
-    si readLine(); BufferedWriter peste scriitorul de fisier adauga buffer si newLine().
+Interfata Repository intoarce in continuare null (findOne, save, delete, update), ca la
+laboratorul 3 si ca in contractul de la curs. Motive:
+- contractul save/update foloseste null cu sens de "succes", iar Optional ar inversa
+  sensul (Optional.empty() = succes), ceea ce e greu de citit;
+- schelele DB si toate implementarile raman neschimbate, iar Javadoc-ul ramane consecvent;
+- Optional apare acolo unde aduce ceva: in service, cautaUtilizator(id) intoarce
+  Optional.ofNullable(repo.findOne(id)), iar getUtilizator foloseste orElseThrow;
+  stergePrieten foloseste Optional.ofNullable(repo.delete(...)).orElseThrow(...);
+  rezultatele lui max sunt folosite cu map / orElse / orElseGet; nu se apeleaza get().
 
 
-5. Simple Factory vs Abstract Factory (OCP)
--------------------------------------------
-Simple Factory (varianta folosita): o singura clasa cu switch pe tip.
-  + simplu de inteles: tot codul de creare e intr-un loc;
-  + un singur fisier de citit la predare / depanare;
-  - incalca OCP: un tip nou de persistenta (de exemplu JSON) inseamna modificarea
-    switch-ului din ambele metode ale RepositoryFactory.
-Abstract Factory: interfata RepositoryFactory cu metodele createUtilizatorRepository si
-createPrietenieRepository, implementata de MemoryRepositoryFactory, FileRepositoryFactory,
-DbRepositoryFactory.
-  + respecta OCP: un tip nou de persistenta este o clasa noua, fara modificarea celor existente;
-  + garanteaza ca repository-urile create impreuna sunt din aceeasi "familie";
-  - mai multe clase pentru putina logica;
-  - tot trebuie ales undeva ce fabrica se foloseste (tot un switch, mutat intr-un singur loc).
-Pentru 3 tipuri de persistenta, Simple Factory este suficient; daca tipurile s-ar inmulti,
-Abstract Factory ar fi alegerea mai buna.
+5. Template Method vs Function in repository-urile pe fisier: am pastrat Template Method
+-----------------------------------------------------------------------------------------
+AbstractFileRepository ramane clasa abstracta cu extractEntity / createEntityAsString
+implementate in UtilizatorFileRepository si PrietenieFileRepository. Motive:
+- conversia linie <-> entitate are si validare de format (numarul de campuri), care sta
+  mai bine intr-o clasa cu nume decat intr-o lambda lunga trimisa la constructor;
+- RepositoryFactory si restul aplicatiei nu se schimba;
+- alternativa (un singur FileRepository<ID, E> cu Function<String, E> si
+  Function<E, String> in constructor) ar fi compozitie in loc de mostenire si ar evita
+  apelul de metode suprascrise din constructor; ar fi alegerea mai buna daca am avea
+  multe entitati noi de salvat in fisier.
 
 
-6. Unde se face validarea
--------------------------
-Validarea datelor unei entitati (campuri, formate) se face in repository, prin
-Validator-ul primit in constructor. Asa trec prin validator si datele incarcate din
-fisier, nu doar cele introduse din consola. Regulile care depind de mai multe entitati
-(utilizatorii unei prietenii trebuie sa existe, prietenia nu trebuie sa existe deja)
-sunt in service, pentru ca un repository nu stie de celalalt.
-
-
-7. Demonstratie la predare
+6. Bucle pastrate si de ce
 --------------------------
-1. Adaugari si stergeri: optiunile 1-4 din meniu; optiunile 5 si 6 arata datele.
-2. Datele se pastreaza: optiunea 0, apoi se reporneste aplicatia si se afiseaza din nou.
-3. Fisier lipsa: se redenumeste data/utilizatori.txt -> aplicatia porneste goala;
-   dupa o adaugare fisierul apare din nou.
-4. Linie corupta: se scrie manual o linie gresita (ex. "abc;Ion;Pop") sau se foloseste
-   data/test/utilizatori_corupt.txt -> mesaj cu numarul liniei si motivul.
-5. repository.type=MEMORY -> aplicatia merge, dar datele nu se pastreaza dupa repornire.
-6. repository.type=DATABASE -> "Persistenta in baza de date nu este implementata inca
-   (laboratorul 4)."
+- ServiceRetea.celMaiLungDrum: backtracking recursiv cu for-each. Pasul de backtracking
+  (adaug pe drum, recursie, scot de pe drum) modifica setul peDrum; scris cu stream-uri,
+  functia din mapToInt ar avea efecte secundare, ceea ce enuntul interzice, si codul s-ar
+  citi mai greu. Exceptie permisa explicit in enunt.
+- Consola.ruleaza: while (continua) este bucla meniului (repeta pana la optiunea 0), nu o
+  parcurgere de colectie.
+
+
+7. Pipeline-uri: operatii intermediare si terminale (exemple pentru predare)
+----------------------------------------------------------------------------
+Operatiile intermediare (filter, map, sorted, distinct) intorc un stream nou si sunt
+lenese: nu fac nimic pana nu apare o operatie terminala. Operatia terminala (collect,
+count, max, forEach) porneste prelucrarea si inchide stream-ul.
+
+a) ServiceRetea.comunitati
+   Repository.streamOf(repoUtilizatori.findAll())   sursa
+       .map(this::comunitateaLui)                   intermediara: utilizator -> comunitatea lui
+       .distinct()                                  intermediara: aceeasi comunitate o singura data
+       .collect(Collectors.toList())                terminala: lista de comunitati
+b) ServiceRetea.adaugaUtilizator
+   Repository.streamOf(repoUtilizatori.findAll())
+       .map(Utilizator::getId)                      intermediara
+       .max(Comparator.naturalOrder())              terminala: Optional<Long>
+       .map(idMaxim -> idMaxim + 1).orElse(1L)      metode ale lui Optional, nu ale stream-ului
+c) AbstractFileRepository.writeToFile
+   Repository.streamOf(findAll())
+       .map(this::createEntityAsString)             intermediara: entitate -> linie
+       .collect(Collectors.toList())                terminala: lista de linii pentru Files.write
+d) ServiceRetea.cautaUtilizatori
+   repoUtilizatori.findAll(criteriu)                filter (intermediara) + collect (terminala)
+       .stream().sorted(Comparator.comparing(Utilizator::getNume)
+                 .thenComparing(Utilizator::getPrenume))   intermediara
+       .collect(Collectors.toList())                terminala
+
+
+8. Factory fara switch
+----------------------
+RepositoryFactory tine doua EnumMap-uri: RepositoryType -> Function care primeste
+validatorul si creeaza repository-ul. Functiile sunt lambda-uri, deci getRequired("...")
+se apeleaza doar pentru tipul ales (la MEMORY nu se cer cai de fisier). Un tip nou de
+persistenta inseamna o valoare noua in RepositoryType si o intrare noua in fiecare Map,
+fara metode noi si fara switch modificat.
+
+
+9. Fisier lipsa, linii corupte, exceptii (neschimbat fata de Lab 3)
+-------------------------------------------------------------------
+- Fisier lipsa: repository gol; fisierul se creeaza la prima salvare.
+- Linie corupta: liniile se citesc cu Files.lines intr-un try-with-resources (stream-ul tine
+  fisierul deschis), apoi IntStream.range(0, linii.size()) da numarul liniei. Incarcarea se
+  opreste cu RepositoryException: fisier, linia, continutul si motivul. Motivul opririi:
+  fisierul se rescrie complet la fiecare modificare, deci o linie ignorata s-ar pierde.
+- IOException si UncheckedIOException (aruncata de Files.lines in timpul citirii) se
+  impacheteaza in RepositoryException, cu exceptia originala drept cauza.
+- Exceptiile se prind doar in Consola si in Main.
+- Fisierele de test raman in data/test/ (utilizatori_corupt.txt, prietenii_corupt.txt,
+  prietenii_inconsistent.txt).
+
+
+10. Demonstratie la predare
+---------------------------
+1. Aceleasi rezultate ca la Lab 3: optiunile 7 (4 comunitati) si 8 (Ana, Mihai, Ioana,
+   Andrei, Maria), plus adaugari/stergeri si repornire.
+2. Inainte/dupa: git diff d783a3e HEAD -- src/main/java/service/ServiceRetea.java
+   (si AbstractFileRepository.java, RepositoryFactory.java); explicatie cu sectiunea 7.
+3. Regula de validare noua doar prin lambda, in Main:
+     Validator<Utilizator> numeDiferitDePrenume = u -> {
+         if (u.getNume().equals(u.getPrenume())) {
+             throw new ValidationException("numele nu poate fi egal cu prenumele;");
+         }
+     };
+     ... new UtilizatorValidator().andThen(lungimeNume).andThen(numeDiferitDePrenume)
+4. Criteriu de cautare nou doar prin lambda: optiunea 9 din meniu foloseste criterii
+   combinate; un criteriu nou se scrie direct, de exemplu
+     service.cautaUtilizatori(CriteriiUtilizator.areCelPutinPrieteni(2).and(u -> u.getId() > 3))
+5. repository.type=MEMORY si DATABASE se comporta ca la Lab 3
+   (DATABASE: "Persistenta in baza de date nu este implementata inca (laboratorul 5).").
+
+
+11. Principii si sabloane (actualizat)
+--------------------------------------
+- Strategy: Validator (acum si ca lambda, compus cu andThen).
+- Template Method: AbstractFileRepository + subclasele pe fisier.
+- Factory: RepositoryFactory, cu Map de functii in loc de switch.
+- DIP: service-ul depinde de Repository, repository-urile de Validator.
+- OCP: o regula de validare sau un criteriu de cautare nou este o lambda noua, fara
+  modificarea claselor existente.
