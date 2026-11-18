@@ -1,6 +1,5 @@
 1;Ana;Pop
 2;Mihai;Ionescu
-3;Ioana;Rus
 4;Andrei;Muresan
 5;Maria;Popescu
 6;Radu;Stan
